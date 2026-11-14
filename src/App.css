@@ -1,0 +1,269 @@
+
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  color: #30263a;
+  font-family: Inter, Arial, sans-serif;
+}
+
+/* ========================================
+   HEADER
+======================================== */
+
+.header {
+  width: 100%;
+  min-height: 76px;
+  padding: 12px 7%;
+  background: #ffc400;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  color: #49216c;
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  text-decoration: none;
+}
+
+.brand-mark {
+  width: 42px;
+  height: 42px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 50%;
+  background: #f47721;
+  color: #ffffff;
+
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.navigation {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.navigation a {
+  color: #49216c;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.navigation a:hover {
+  color: #f47721;
+}
+
+/* ========================================
+   MAIN CONTENT
+======================================== */
+
+.main-content {
+  width: min(1180px, 90%);
+  margin: 0 auto;
+  padding: 48px 0;
+
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  align-items: center;
+  gap: 64px;
+
+  flex: 1;
+}
+
+/* ========================================
+   POSTER
+======================================== */
+
+.poster-section {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.poster-image {
+  display: block;
+
+  width: 100%;
+  max-width: 460px;
+  height: auto;
+
+  object-fit: contain;
+
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+/* ========================================
+   BUTTONS
+======================================== */
+
+.start-button {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 24px;
+  padding: 14px 20px;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+
+  border: none;
+  border-radius: 10px;
+
+  background: #f47721;
+  color: #ffffff;
+
+  font-size: 15px;
+  font-weight: 800;
+
+  cursor: pointer;
+
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
+}
+
+.start-button:hover {
+  background: #d95e0c;
+  transform: translateY(-2px);
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid #8a55b2;
+  outline-offset: 3px;
+}
+
+
+/* ========================================
+   FOOTER
+======================================== */
+
+.footer {
+  width: 100%;
+  min-height: 130px;
+  padding: 30px 8%;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+
+  background: #46166c;
+  color: #ffffff;
+}
+
+.footer strong {
+  font-size: 15px;
+  letter-spacing: 0.5px;
+}
+
+.footer p {
+  margin: 8px 0 0;
+
+  color: #e0d4e9;
+  font-size: 13px;
+}
+
+.footer-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  color: #e0d4e9;
+  font-size: 12px;
+}
+
+/* ========================================
+   RESPONSIVE DESIGN
+======================================== */
+
+@media (max-width: 900px) {
+  .main-content {
+    gap: 35px;
+    width: 92%;
+  }
+
+  .poster-image {
+    max-width: 400px;
+  }
+}
+
+@media (max-width: 760px) {
+  .header {
+    padding: 14px 5%;
+    flex-wrap: wrap;
+  }
+
+  .navigation {
+    gap: 18px;
+  }
+
+  .main-content {
+    width: 90%;
+    grid-template-columns: 1fr;
+    gap: 35px;
+    padding: 35px 0;
+  }
+
+  .poster-image {
+    max-width: 460px;
+  }
+
+  .quiz-heading h1 {
+    font-size: 32px;
+  }
+
+  .footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 420px) {
+  .brand {
+    font-size: 14px;
+  }
+
+  .navigation {
+    width: 100%;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .navigation a {
+    font-size: 12px;
+  }
+
+  .category-card {
+    padding: 13px;
+  }
+
+  .category-info small {
+    font-size: 11px;
+  }
+}
