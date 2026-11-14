@@ -1,7 +1,7 @@
 
 import { useState } from 'react'
 
-import poster from '../imgs/unitel.jpg'
+import poster from './assets/unitel.jpg'
 
 import {
   BookOpen,
