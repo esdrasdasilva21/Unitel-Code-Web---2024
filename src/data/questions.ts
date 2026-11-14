@@ -496,4 +496,3 @@ export const questions: Question[] = [
     source: 'Conhecimento geral sobre inovação e telecomunicações.',
   },
 ]
-S
