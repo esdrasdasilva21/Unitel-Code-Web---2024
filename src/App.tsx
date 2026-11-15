@@ -1,5 +1,5 @@
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 import poster from './assets/unitel.jpg'
 
@@ -13,6 +13,7 @@ import {
   XCircle,
   RotateCcw,
   Trophy,
+  Clock,
 } from 'lucide-react'
 
 import type { LucideIcon } from 'lucide-react'
@@ -48,6 +49,9 @@ const categories: CategoryItem[] = [
   },
 ]
 
+// Tempo disponível por pergunta
+const QUESTION_TIME = 30
+
 // Componente principal
 function App() {
   // Categoria selecionada
@@ -71,6 +75,12 @@ function App() {
   // Estado de conclusão
   const [finished, setFinished] = useState(false)
 
+  // Tempo restante
+  const [timeLeft, setTimeLeft] = useState(QUESTION_TIME)
+
+  // Estado de tempo esgotado
+  const [timeExpired, setTimeExpired] = useState(false)
+
   // Filtrar perguntas da categoria selecionada
   const categoryQuestions = questions.filter(
     (question) => question.category === selectedCategory,
@@ -80,18 +90,59 @@ function App() {
   const currentQuestion =
     categoryQuestions[currentQuestionIndex]
 
+  // Temporizador automático
+  useEffect(() => {
+    // Não executar o temporizador nestas situações
+    if (
+      !started ||
+      finished ||
+      timeExpired ||
+      selectedAnswer !== null
+    ) {
+      return
+    }
+
+    // Quando o tempo chega a zero
+    if (timeLeft <= 0) {
+      setTimeExpired(true)
+      return
+    }
+
+    // Diminuir um segundo
+    const timer = window.setTimeout(() => {
+      setTimeLeft((previousTime) => previousTime - 1)
+    }, 1000)
+
+    // Limpar o temporizador anterior
+    return () => window.clearTimeout(timer)
+
+  }, [
+    started,
+    finished,
+    timeExpired,
+    selectedAnswer,
+    timeLeft,
+  ])
+
   // Iniciar o questionário
   function startQuiz() {
     setCurrentQuestionIndex(0)
     setSelectedAnswer(null)
     setScore(0)
     setFinished(false)
+    setTimeLeft(QUESTION_TIME)
+    setTimeExpired(false)
     setStarted(true)
   }
 
   // Selecionar resposta
   function handleAnswer(answerIndex: number) {
-    if (selectedAnswer !== null || !currentQuestion) {
+    if (
+      selectedAnswer !== null ||
+      timeExpired ||
+      timeLeft <= 0 ||
+      !currentQuestion
+    ) {
       return
     }
 
@@ -105,13 +156,15 @@ function App() {
 
   // Avançar para a próxima pergunta
   function nextQuestion() {
-    if (selectedAnswer === null) {
+    if (selectedAnswer === null && !timeExpired) {
       return
     }
 
     if (currentQuestionIndex < categoryQuestions.length - 1) {
       setCurrentQuestionIndex((previousIndex) => previousIndex + 1)
       setSelectedAnswer(null)
+      setTimeLeft(QUESTION_TIME)
+      setTimeExpired(false)
     } else {
       setFinished(true)
     }
@@ -124,6 +177,8 @@ function App() {
     setSelectedAnswer(null)
     setScore(0)
     setFinished(false)
+    setTimeLeft(QUESTION_TIME)
+    setTimeExpired(false)
   }
 
   // Repetir o questionário
@@ -297,15 +352,38 @@ function App() {
             <div className="mt-6 rounded-xl border border-[#e8e1ef] bg-white p-5 shadow-sm sm:p-7">
 
               {/* INFORMAÇÕES DA PERGUNTA */}
-              <div className="mb-6 flex items-center justify-between gap-3">
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
 
                 <span className="rounded-full bg-[#f1eafa] px-3 py-1.5 text-xs font-bold text-[#6d3596]">
                   {selectedCategory}
                 </span>
 
-                <span className="text-xs font-bold text-gray-500">
-                  Pergunta {currentQuestionIndex + 1} de {categoryQuestions.length}
-                </span>
+                <div className="flex items-center gap-3">
+
+                  <span className="text-xs font-bold text-gray-500">
+                    Pergunta {currentQuestionIndex + 1} de {categoryQuestions.length}
+                  </span>
+
+                  {/* TEMPORIZADOR */}
+                  <div
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-extrabold ${
+                      timeLeft <= 10
+                        ? 'bg-red-50 text-red-600'
+                        : 'bg-[#f1eafa] text-[#6d3596]'
+                    }`}
+                    aria-live="polite"
+                    aria-label={`Tempo restante: ${timeLeft} segundos`}
+                  >
+
+                    <Clock size={17} />
+
+                    <span>
+                      {timeLeft}s
+                    </span>
+
+                  </div>
+
+                </div>
 
               </div>
 
@@ -363,7 +441,7 @@ function App() {
                     <button
                       key={index}
                       type="button"
-                      disabled={selectedAnswer !== null}
+                      disabled={selectedAnswer !== null || timeExpired}
                       onClick={() => handleAnswer(index)}
                       className={`flex min-h-[58px] w-full items-center gap-3 rounded-lg border p-4 text-left text-sm font-medium transition-all duration-200 disabled:cursor-default ${optionStyle}`}
                     >
@@ -406,7 +484,7 @@ function App() {
               </div>
 
               {/* FEEDBACK DA RESPOSTA */}
-              {selectedAnswer !== null && (
+              {selectedAnswer !== null ? (
 
                 <div
                   className={`mt-5 rounded-lg border p-4 ${
@@ -454,7 +532,35 @@ function App() {
 
                 </div>
 
-              )}
+              ) : timeExpired ? (
+
+                <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4">
+
+                  <div className="flex items-center gap-2">
+
+                    <Clock
+                      size={20}
+                      className="text-amber-600"
+                    />
+
+                    <strong className="text-sm text-amber-800">
+                      Tempo esgotado!
+                    </strong>
+
+                  </div>
+
+                  <p className="mt-2 text-sm leading-6 text-gray-600">
+                    Não conseguiste responder dentro do tempo disponível.
+                    A resposta correta era: {currentQuestion.options[currentQuestion.correctAnswer]}.
+                  </p>
+
+                  <p className="mt-2 text-sm leading-6 text-gray-600">
+                    {currentQuestion.explanation}
+                  </p>
+
+                </div>
+
+              ) : null}
 
               {/* NAVEGAÇÃO */}
               <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -473,14 +579,18 @@ function App() {
 
                 <button
                   type="button"
-                  disabled={selectedAnswer === null}
+                  disabled={selectedAnswer === null && !timeExpired}
                   onClick={nextQuestion}
                   className="flex min-h-[46px] items-center justify-center gap-2 rounded-lg bg-[#f47721] px-5 py-3 text-sm font-extrabold text-white transition-colors hover:bg-[#d95e0c] disabled:cursor-not-allowed disabled:opacity-40"
                 >
 
-                  {currentQuestionIndex === categoryQuestions.length - 1
-                    ? 'Ver resultado'
-                    : 'Próxima pergunta'}
+                  {timeExpired
+                    ? currentQuestionIndex === categoryQuestions.length - 1
+                      ? 'Ver resultado'
+                      : 'Continuar'
+                    : currentQuestionIndex === categoryQuestions.length - 1
+                      ? 'Ver resultado'
+                      : 'Próxima pergunta'}
 
                   <ArrowRight size={18} />
 
