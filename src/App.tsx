@@ -23,14 +23,12 @@ import type { Category } from './data/questions'
 
 import './App.css'
 
-// Interface das categorias
 interface CategoryItem {
   name: Category
   description: string
   icon: LucideIcon
 }
 
-// Dados das categorias
 const categories: CategoryItem[] = [
   {
     name: 'História',
@@ -49,50 +47,45 @@ const categories: CategoryItem[] = [
   },
 ]
 
-// Tempo disponível por pergunta
 const QUESTION_TIME = 30
 
-// Componente principal
 function App() {
-  // Categoria selecionada
   const [selectedCategory, setSelectedCategory] =
     useState<Category>('História')
 
-  // Estado do questionário
   const [started, setStarted] = useState(false)
 
-  // Índice da pergunta atual
   const [currentQuestionIndex, setCurrentQuestionIndex] =
     useState(0)
 
-  // Resposta selecionada
-  const [selectedAnswer, setSelectedAnswer] =
-    useState<number | null>(null)
+  // Guardar as respostas de cada pergunta
+  const [answers, setAnswers] = useState<Record<number, number>>({})
 
-  // Pontuação
-  const [score, setScore] = useState(0)
-
-  // Estado de conclusão
   const [finished, setFinished] = useState(false)
 
-  // Tempo restante
   const [timeLeft, setTimeLeft] = useState(QUESTION_TIME)
 
-  // Estado de tempo esgotado
   const [timeExpired, setTimeExpired] = useState(false)
 
-  // Filtrar perguntas da categoria selecionada
   const categoryQuestions = questions.filter(
     (question) => question.category === selectedCategory,
   )
 
-  // Obter pergunta atual
-  const currentQuestion =
-    categoryQuestions[currentQuestionIndex]
+  const currentQuestion = categoryQuestions[currentQuestionIndex]
 
-  // Temporizador automático
+  // Recuperar a resposta anteriormente selecionada
+  const selectedAnswer =
+    answers[currentQuestionIndex] ?? null
+
+  // Calcular a pontuação com base nas respostas guardadas
+  const score = categoryQuestions.reduce((total, question, index) => {
+    return total + (
+      answers[index] === question.correctAnswer ? 1 : 0
+    )
+  }, 0)
+
+  // Temporizador
   useEffect(() => {
-    // Não executar o temporizador nestas situações
     if (
       !started ||
       finished ||
@@ -102,20 +95,16 @@ function App() {
       return
     }
 
-    // Quando o tempo chega a zero
     if (timeLeft <= 0) {
       setTimeExpired(true)
       return
     }
 
-    // Diminuir um segundo
     const timer = window.setTimeout(() => {
       setTimeLeft((previousTime) => previousTime - 1)
     }, 1000)
 
-    // Limpar o temporizador anterior
     return () => window.clearTimeout(timer)
-
   }, [
     started,
     finished,
@@ -124,18 +113,17 @@ function App() {
     timeLeft,
   ])
 
-  // Iniciar o questionário
+  // Iniciar o quiz
   function startQuiz() {
     setCurrentQuestionIndex(0)
-    setSelectedAnswer(null)
-    setScore(0)
+    setAnswers({})
     setFinished(false)
     setTimeLeft(QUESTION_TIME)
     setTimeExpired(false)
     setStarted(true)
   }
 
-  // Selecionar resposta
+  // Responder à pergunta
   function handleAnswer(answerIndex: number) {
     if (
       selectedAnswer !== null ||
@@ -146,12 +134,10 @@ function App() {
       return
     }
 
-    setSelectedAnswer(answerIndex)
-
-    // Verificar resposta correta
-    if (answerIndex === currentQuestion.correctAnswer) {
-      setScore((previousScore) => previousScore + 1)
-    }
+    setAnswers((previousAnswers) => ({
+      ...previousAnswers,
+      [currentQuestionIndex]: answerIndex,
+    }))
   }
 
   // Avançar para a próxima pergunta
@@ -162,7 +148,6 @@ function App() {
 
     if (currentQuestionIndex < categoryQuestions.length - 1) {
       setCurrentQuestionIndex((previousIndex) => previousIndex + 1)
-      setSelectedAnswer(null)
       setTimeLeft(QUESTION_TIME)
       setTimeExpired(false)
     } else {
@@ -170,23 +155,40 @@ function App() {
     }
   }
 
-  // Regressar à seleção de categorias
+  // Regressar à pergunta anterior
+  function previousQuestion() {
+    if (currentQuestionIndex <= 0) {
+      return
+    }
+
+    const previousIndex = currentQuestionIndex - 1
+
+    setCurrentQuestionIndex(previousIndex)
+    setTimeExpired(false)
+
+    // Perguntas já respondidas não precisam de novo tempo.
+    // Perguntas ainda não respondidas recebem um novo temporizador.
+    if (answers[previousIndex] === undefined) {
+      setTimeLeft(QUESTION_TIME)
+    }
+  }
+
+  // Regressar às categorias
   function backToCategories() {
     setStarted(false)
     setCurrentQuestionIndex(0)
-    setSelectedAnswer(null)
-    setScore(0)
+    setAnswers({})
     setFinished(false)
     setTimeLeft(QUESTION_TIME)
     setTimeExpired(false)
   }
 
-  // Repetir o questionário
+  // Repetir o quiz
   function restartQuiz() {
     startQuiz()
   }
 
-  // Calcular aproveitamento
+  // Aproveitamento final
   const percentage =
     categoryQuestions.length > 0
       ? Math.round((score / categoryQuestions.length) * 100)
@@ -214,7 +216,7 @@ function App() {
       {/* CONTEÚDO PRINCIPAL */}
       <main className="main-content" id="inicio">
 
-        {/* CARTAZ ORIGINAL */}
+        {/* CARTAZ */}
         <section className="poster-section">
 
           <img
@@ -226,10 +228,7 @@ function App() {
         </section>
 
         {/* PAINEL DO QUIZ */}
-        <section
-          className="w-full py-3"
-          id="quiz"
-        >
+        <section className="w-full py-3" id="quiz">
 
           {/* APRESENTAÇÃO */}
           <div className="mb-8">
@@ -250,7 +249,7 @@ function App() {
 
           </div>
 
-          {/* SELEÇÃO DE CATEGORIAS */}
+          {/* CATEGORIAS */}
           {!started ? (
 
             <>
@@ -259,7 +258,6 @@ function App() {
                 Escolhe uma categoria
               </h2>
 
-              {/* CATEGORIAS */}
               <div className="grid gap-3">
 
                 {categories.map((category) => {
@@ -285,7 +283,6 @@ function App() {
                       }`}
                     >
 
-                      {/* ÍCONE DA CATEGORIA */}
                       <span
                         className={`grid size-12 shrink-0 place-items-center rounded-xl ${
                           category.name === 'História'
@@ -296,14 +293,10 @@ function App() {
                         }`}
                       >
 
-                        <Icon
-                          size={24}
-                          strokeWidth={1.7}
-                        />
+                        <Icon size={24} strokeWidth={1.7} />
 
                       </span>
 
-                      {/* INFORMAÇÕES */}
                       <span className="grid flex-1 gap-1.5">
 
                         <strong className="text-sm font-bold text-[#49216c]">
@@ -316,7 +309,6 @@ function App() {
 
                       </span>
 
-                      {/* SETA */}
                       <ArrowRight
                         size={19}
                         className="shrink-0 text-[#6d3596] transition-transform duration-200 group-hover:translate-x-1"
@@ -325,17 +317,15 @@ function App() {
                     </button>
 
                   )
-
                 })}
 
               </div>
 
-              {/* BOTÃO COMEÇAR */}
               <button
                 type="button"
                 onClick={startQuiz}
                 disabled={categoryQuestions.length === 0}
-                className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-3 rounded-lg bg-[#f47721] px-5 py-3.5 text-sm font-extrabold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#d95e0c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6d3596] disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-3 rounded-lg bg-[#f47721] px-5 py-3.5 text-sm font-extrabold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#d95e0c] disabled:cursor-not-allowed disabled:opacity-50"
               >
 
                 Começar quiz
@@ -349,9 +339,9 @@ function App() {
           ) : !finished && currentQuestion ? (
 
             /* QUESTIONÁRIO */
-            <div className="mt-6 rounded-xl border border-[#e8e1ef] bg-white p-5 shadow-sm sm:p-7">
+            <div className="mt-6 rounded-xl border border-[#e5ddea] bg-white p-5 shadow-sm sm:p-7">
 
-              {/* INFORMAÇÕES DA PERGUNTA */}
+              {/* INFORMAÇÕES */}
               <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
 
                 <span className="rounded-full bg-[#f1eafa] px-3 py-1.5 text-xs font-bold text-[#6d3596]">
@@ -366,10 +356,12 @@ function App() {
 
                   {/* TEMPORIZADOR */}
                   <div
-                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-extrabold ${
-                      timeLeft <= 10
-                        ? 'bg-red-50 text-red-600'
-                        : 'bg-[#f1eafa] text-[#6d3596]'
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-extrabold transition-colors duration-300 ${
+                      timeLeft === 0
+                        ? 'border-[#E8B4B4] bg-[#FCEEEE] text-[#A33E3E]'
+                        : timeLeft <= 10
+                          ? 'border-[#F0D2A8] bg-[#FFF3E6] text-[#A65D19]'
+                          : 'border-[#DCCCEB] bg-[#F1EAF8] text-[#6D3596]'
                     }`}
                     aria-live="polite"
                     aria-label={`Tempo restante: ${timeLeft} segundos`}
@@ -377,9 +369,7 @@ function App() {
 
                     <Clock size={17} />
 
-                    <span>
-                      {timeLeft}s
-                    </span>
+                    <span>{timeLeft}s</span>
 
                   </div>
 
@@ -387,7 +377,7 @@ function App() {
 
               </div>
 
-              {/* BARRA DE PROGRESSO */}
+              {/* PROGRESSO */}
               <div
                 className="mb-7 h-2 overflow-hidden rounded-full bg-gray-100"
                 role="progressbar"
@@ -409,7 +399,7 @@ function App() {
 
               </div>
 
-              {/* ENUNCIADO */}
+              {/* PERGUNTA */}
               <h2 className="mb-6 text-lg font-extrabold leading-relaxed text-[#49216c] sm:text-xl">
                 {currentQuestion.question}
               </h2>
@@ -426,14 +416,14 @@ function App() {
                     selectedAnswer === index
 
                   let optionStyle =
-                    'border-[#e8e1ef] bg-white hover:border-[#8a55b2] hover:bg-[#faf7fd]'
+                    'border-[#E5DDEA] bg-white text-[#49365D] hover:border-[#A98AC4] hover:bg-[#F8F5FB]'
 
                   if (selectedAnswer !== null && isCorrect) {
                     optionStyle =
-                      'border-green-500 bg-green-50 text-green-800'
+                      'border-[#65A982] bg-[#EAF6EF] text-[#246B45]'
                   } else if (isSelected && !isCorrect) {
                     optionStyle =
-                      'border-red-400 bg-red-50 text-red-800'
+                      'border-[#D98282] bg-[#FCEEEE] text-[#A33E3E]'
                   }
 
                   return (
@@ -446,51 +436,53 @@ function App() {
                       className={`flex min-h-[58px] w-full items-center gap-3 rounded-lg border p-4 text-left text-sm font-medium transition-all duration-200 disabled:cursor-default ${optionStyle}`}
                     >
 
-                      {/* LETRA DA ALTERNATIVA */}
-                      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-gray-100 text-xs font-extrabold text-[#49216c]">
+                      <span
+                        className={`grid size-8 shrink-0 place-items-center rounded-full text-xs font-extrabold ${
+                          selectedAnswer !== null && isCorrect
+                            ? 'bg-[#D2EBDD] text-[#246B45]'
+                            : isSelected
+                              ? 'bg-white/80'
+                              : 'bg-[#F1EDF5] text-[#604879]'
+                        }`}
+                      >
+
                         {String.fromCharCode(65 + index)}
+
                       </span>
 
-                      {/* TEXTO DA ALTERNATIVA */}
                       <span className="flex-1">
                         {option}
                       </span>
 
-                      {/* INDICADOR DE RESPOSTA */}
                       {selectedAnswer !== null && isCorrect && (
-
                         <CheckCircle2
                           size={20}
-                          className="shrink-0 text-green-600"
+                          className="shrink-0 text-[#39845A]"
                         />
-
                       )}
 
                       {isSelected && !isCorrect && (
-
                         <XCircle
                           size={20}
-                          className="shrink-0 text-red-500"
+                          className="shrink-0 text-[#B94F4F]"
                         />
-
                       )}
 
                     </button>
 
                   )
-
                 })}
 
               </div>
 
-              {/* FEEDBACK DA RESPOSTA */}
+              {/* FEEDBACK */}
               {selectedAnswer !== null ? (
 
                 <div
                   className={`mt-5 rounded-lg border p-4 ${
                     selectedAnswer === currentQuestion.correctAnswer
-                      ? 'border-green-200 bg-green-50'
-                      : 'border-red-200 bg-red-50'
+                      ? 'border-[#B9DCC7] bg-[#EAF6EF]'
+                      : 'border-[#EBC5C5] bg-[#FCEEEE]'
                   }`}
                 >
 
@@ -501,10 +493,10 @@ function App() {
                       <>
                         <CheckCircle2
                           size={20}
-                          className="text-green-600"
+                          className="text-[#39845A]"
                         />
 
-                        <strong className="text-sm text-green-800">
+                        <strong className="text-sm text-[#246B45]">
                           Resposta correta!
                         </strong>
                       </>
@@ -514,10 +506,10 @@ function App() {
                       <>
                         <XCircle
                           size={20}
-                          className="text-red-600"
+                          className="text-[#B94F4F]"
                         />
 
-                        <strong className="text-sm text-red-800">
+                        <strong className="text-sm text-[#A33E3E]">
                           Resposta incorreta!
                         </strong>
                       </>
@@ -526,7 +518,7 @@ function App() {
 
                   </div>
 
-                  <p className="mt-2 text-sm leading-6 text-gray-600">
+                  <p className="mt-2 text-sm leading-6 text-[#52645A]">
                     {currentQuestion.explanation}
                   </p>
 
@@ -534,27 +526,27 @@ function App() {
 
               ) : timeExpired ? (
 
-                <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <div className="mt-5 rounded-lg border border-[#F0D2A8] bg-[#FFF3E6] p-4">
 
                   <div className="flex items-center gap-2">
 
                     <Clock
                       size={20}
-                      className="text-amber-600"
+                      className="text-[#A65D19]"
                     />
 
-                    <strong className="text-sm text-amber-800">
+                    <strong className="text-sm text-[#8B4B13]">
                       Tempo esgotado!
                     </strong>
 
                   </div>
 
-                  <p className="mt-2 text-sm leading-6 text-gray-600">
+                  <p className="mt-2 text-sm leading-6 text-[#795B42]">
                     Não conseguiste responder dentro do tempo disponível.
                     A resposta correta era: {currentQuestion.options[currentQuestion.correctAnswer]}.
                   </p>
 
-                  <p className="mt-2 text-sm leading-6 text-gray-600">
+                  <p className="mt-2 text-sm leading-6 text-[#795B42]">
                     {currentQuestion.explanation}
                   </p>
 
@@ -562,21 +554,43 @@ function App() {
 
               ) : null}
 
-              {/* NAVEGAÇÃO */}
+              {/* NAVEGAÇÃO ENTRE PERGUNTAS */}
               <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
 
-                <button
-                  type="button"
-                  onClick={backToCategories}
-                  className="flex min-h-[46px] items-center justify-center gap-2 rounded-lg border border-[#e8e1ef] px-4 py-3 text-sm font-bold text-[#6d3596] transition-colors hover:bg-[#f7f1fc]"
-                >
+                {/* VOLTAR */}
+                <div className="flex flex-col gap-3 sm:flex-row">
 
-                  <ArrowLeft size={17} />
+                  <button
+                    type="button"
+                    onClick={backToCategories}
+                    className="flex min-h-[46px] items-center justify-center gap-2 rounded-lg border border-[#E5DDEA] px-4 py-3 text-sm font-bold text-[#6d3596] transition-colors hover:bg-[#F8F5FB]"
+                  >
 
-                  Sair do quiz
+                    <ArrowLeft size={17} />
 
-                </button>
+                    Sair do quiz
 
+                  </button>
+
+                  {currentQuestionIndex > 0 && (
+
+                    <button
+                      type="button"
+                      onClick={previousQuestion}
+                      className="flex min-h-[46px] items-center justify-center gap-2 rounded-lg border border-[#DCCCEB] bg-[#F1EAF8] px-4 py-3 text-sm font-bold text-[#6d3596] transition-colors hover:border-[#A98AC4] hover:bg-[#E9DDF3]"
+                    >
+
+                      <ArrowLeft size={17} />
+
+                      Pergunta anterior
+
+                    </button>
+
+                  )}
+
+                </div>
+
+                {/* AVANÇAR */}
                 <button
                   type="button"
                   disabled={selectedAnswer === null && !timeExpired}
@@ -584,13 +598,9 @@ function App() {
                   className="flex min-h-[46px] items-center justify-center gap-2 rounded-lg bg-[#f47721] px-5 py-3 text-sm font-extrabold text-white transition-colors hover:bg-[#d95e0c] disabled:cursor-not-allowed disabled:opacity-40"
                 >
 
-                  {timeExpired
-                    ? currentQuestionIndex === categoryQuestions.length - 1
-                      ? 'Ver resultado'
-                      : 'Continuar'
-                    : currentQuestionIndex === categoryQuestions.length - 1
-                      ? 'Ver resultado'
-                      : 'Próxima pergunta'}
+                  {currentQuestionIndex === categoryQuestions.length - 1
+                    ? 'Ver resultado'
+                    : 'Próxima pergunta'}
 
                   <ArrowRight size={18} />
 
@@ -603,15 +613,11 @@ function App() {
           ) : finished ? (
 
             /* RESULTADO FINAL */
-            <div className="mt-6 rounded-xl border border-[#e8e1ef] bg-white p-7 text-center shadow-sm">
+            <div className="mt-6 rounded-xl border border-[#e5ddea] bg-white p-7 text-center shadow-sm">
 
-              {/* ÍCONE */}
               <div className="mx-auto mb-5 grid size-[76px] place-items-center rounded-full bg-[#f1eafa] text-[#6d3596]">
 
-                <Trophy
-                  size={42}
-                  strokeWidth={1.6}
-                />
+                <Trophy size={42} strokeWidth={1.6} />
 
               </div>
 
@@ -627,7 +633,6 @@ function App() {
                 Categoria: {selectedCategory}
               </p>
 
-              {/* PONTUAÇÃO */}
               <div className="my-7 rounded-xl bg-[#f7f1fc] p-6">
 
                 <p className="text-sm font-semibold text-[#6d3596]">
@@ -648,7 +653,6 @@ function App() {
 
               </div>
 
-              {/* MENSAGEM FINAL */}
               <p className="text-sm leading-7 text-gray-600">
 
                 {score === categoryQuestions.length
@@ -661,7 +665,6 @@ function App() {
 
               </p>
 
-              {/* AÇÕES FINAIS */}
               <div className="mt-7 grid gap-3 sm:grid-cols-2">
 
                 <button
@@ -679,7 +682,7 @@ function App() {
                 <button
                   type="button"
                   onClick={backToCategories}
-                  className="flex min-h-[50px] items-center justify-center gap-2 rounded-lg border border-[#e8e1ef] px-4 py-3 text-sm font-bold text-[#6d3596] transition-colors hover:bg-[#f7f1fc]"
+                  className="flex min-h-[50px] items-center justify-center gap-2 rounded-lg border border-[#e5ddea] px-4 py-3 text-sm font-bold text-[#6d3596] transition-colors hover:bg-[#f7f1fc]"
                 >
 
                   <ArrowLeft size={18} />
@@ -694,8 +697,8 @@ function App() {
 
           ) : (
 
-            /* ESTADO SEM PERGUNTAS */
-            <div className="mt-6 rounded-xl border border-[#e8e1ef] bg-white p-7 text-center shadow-sm">
+            /* SEM PERGUNTAS */
+            <div className="mt-6 rounded-xl border border-[#e5ddea] bg-white p-7 text-center shadow-sm">
 
               <p className="text-sm text-gray-500">
                 Não existem perguntas disponíveis nesta categoria.
