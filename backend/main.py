@@ -1,7 +1,9 @@
+import json
 import logging
 import os
 import time
 from enum import Enum
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
@@ -29,7 +31,8 @@ class Settings(BaseModel):
     app_description: str = os.getenv(
         "APP_DESCRIPTION", "API do projeto Unitel Code Web"
     )
-    app_version: str = os.getenv("APP_VERSION", "1.4.0")
+    app_version: str = os.getenv("APP_VERSION", "1.5.0")
+    data_file: Path = Path(os.getenv("DATA_FILE", "categories_store.json"))
     cors_origins: List[str] = [
         origin.strip()
         for origin in os.getenv("CORS_ORIGINS", "*").split(",")
@@ -60,7 +63,7 @@ class CategoryBase(BaseModel):
 
 
 class CategoryCreate(CategoryBase):
-    id: int = Field(..., gt=0)
+    id: Optional[int] = Field(default=None, gt=0)
 
 
 class CategoryUpdate(CategoryBase):
@@ -82,6 +85,13 @@ class HealthResponse(BaseModel):
     version: str
 
 
+class DetailedHealthResponse(BaseModel):
+    status: str
+    version: str
+    storage_file: str
+    total_categories: int
+
+
 class CategoriesResponse(BaseModel):
     total: int
     limit: int
@@ -93,6 +103,25 @@ class ErrorResponse(BaseModel):
     error: str
     detail: object
     path: str
+
+
+DEFAULT_CATEGORIES: List[Category] = [
+    Category(
+        id=1,
+        name="História",
+        description="Conhece a história e evolução da Unitel.",
+    ),
+    Category(
+        id=2,
+        name="Serviços",
+        description="Descobre os serviços e soluções da Unitel.",
+    ),
+    Category(
+        id=3,
+        name="Conhece a Unitel",
+        description="Testa os teus conhecimentos sobre a empresa.",
+    ),
+]
 
 
 @app.middleware("http")
@@ -141,14 +170,55 @@ async def validation_exception_handler(
 
 
 class CategoryService:
-    def __init__(self, initial_categories: List[Category]) -> None:
-        self._items: List[Category] = list(initial_categories)
+    def __init__(self, storage_path: Path, initial_categories: List[Category]) -> None:
+        self._storage_path = storage_path
+        self._items: List[Category] = self._load_or_seed(initial_categories)
+
+    def _load_or_seed(self, initial_categories: List[Category]) -> List[Category]:
+        if not self._storage_path.exists():
+            items = list(initial_categories)
+            self._save_to_disk(items)
+            logger.info("Ficheiro inicial criado em %s", self._storage_path)
+            return items
+
+        try:
+            raw_data = json.loads(self._storage_path.read_text(encoding="utf-8"))
+            items = [Category(**entry) for entry in raw_data]
+            logger.info(
+                "Carregadas %d categorias a partir de %s",
+                len(items),
+                self._storage_path,
+            )
+            return items
+        except Exception as exc:
+            logger.warning(
+                "Falha ao ler %s (%s). A usar categorias padrão.",
+                self._storage_path,
+                exc,
+            )
+            return list(initial_categories)
+
+    def _save_to_disk(self, items: Optional[List[Category]] = None) -> None:
+        target = items if items is not None else self._items
+        serialized = [item.model_dump() for item in target]
+        self._storage_path.write_text(
+            json.dumps(serialized, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     def _find_index(self, category_id: int) -> int:
         for idx, item in enumerate(self._items):
             if item.id == category_id:
                 return idx
         return -1
+
+    def _next_id(self) -> int:
+        if not self._items:
+            return 1
+        return max(item.id for item in self._items) + 1
+
+    def count(self) -> int:
+        return len(self._items)
 
     def get_by_id(self, category_id: int) -> Optional[Category]:
         idx = self._find_index(category_id)
@@ -189,14 +259,20 @@ class CategoryService:
         )
 
     def create(self, payload: CategoryCreate) -> Category:
-        if self._find_index(payload.id) != -1:
+        category_id = payload.id if payload.id is not None else self._next_id()
+        if self._find_index(category_id) != -1:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Já existe uma categoria com id {payload.id}.",
+                detail=f"Já existe uma categoria com id {category_id}.",
             )
 
-        new_category = Category(**payload.model_dump())
+        new_category = Category(
+            id=category_id,
+            name=payload.name,
+            description=payload.description,
+        )
         self._items.append(new_category)
+        self._save_to_disk()
         logger.info("Categoria criada: id=%s, name=%s", new_category.id, new_category.name)
         return new_category
 
@@ -214,6 +290,7 @@ class CategoryService:
             description=payload.description,
         )
         self._items[idx] = updated
+        self._save_to_disk()
         logger.info("Categoria atualizada: id=%s", category_id)
         return updated
 
@@ -239,6 +316,7 @@ class CategoryService:
             description=updates.get("description", current.description),
         )
         self._items[idx] = updated
+        self._save_to_disk()
         logger.info("Categoria atualizada parcialmente: id=%s", category_id)
         return updated
 
@@ -251,27 +329,13 @@ class CategoryService:
             )
 
         self._items.pop(idx)
+        self._save_to_disk()
         logger.info("Categoria removida: id=%s", category_id)
 
 
 category_service = CategoryService(
-    [
-        Category(
-            id=1,
-            name="História",
-            description="Conhece a história e evolução da Unitel.",
-        ),
-        Category(
-            id=2,
-            name="Serviços",
-            description="Descobre os serviços e soluções da Unitel.",
-        ),
-        Category(
-            id=3,
-            name="Conhece a Unitel",
-            description="Testa os teus conhecimentos sobre a empresa.",
-        ),
-    ]
+    storage_path=settings.data_file,
+    initial_categories=DEFAULT_CATEGORIES,
 )
 
 
@@ -281,6 +345,16 @@ def home() -> HealthResponse:
         message="Bem-vindo à API do Unitel Code Web!",
         status="online",
         version=app.version,
+    )
+
+
+@app.get("/health", response_model=DetailedHealthResponse, tags=["Geral"])
+def health_check() -> DetailedHealthResponse:
+    return DetailedHealthResponse(
+        status="healthy",
+        version=app.version,
+        storage_file=str(settings.data_file),
+        total_categories=category_service.count(),
     )
 
 
