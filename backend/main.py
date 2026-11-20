@@ -1,13 +1,27 @@
 import logging
 import os
+import time
+from enum import Enum
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("unitel_code_web_api")
+
+
+class SortField(str, Enum):
+    id = "id"
+    name = "name"
+
+
+class SortOrder(str, Enum):
+    asc = "asc"
+    desc = "desc"
 
 
 class Settings(BaseModel):
@@ -15,7 +29,7 @@ class Settings(BaseModel):
     app_description: str = os.getenv(
         "APP_DESCRIPTION", "API do projeto Unitel Code Web"
     )
-    app_version: str = os.getenv("APP_VERSION", "1.2.0")
+    app_version: str = os.getenv("APP_VERSION", "1.4.0")
     cors_origins: List[str] = [
         origin.strip()
         for origin in os.getenv("CORS_ORIGINS", "*").split(",")
@@ -53,6 +67,11 @@ class CategoryUpdate(CategoryBase):
     pass
 
 
+class CategoryPatch(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    description: Optional[str] = Field(default=None, min_length=5, max_length=255)
+
+
 class Category(CategoryBase):
     id: int = Field(..., gt=0)
 
@@ -65,30 +84,195 @@ class HealthResponse(BaseModel):
 
 class CategoriesResponse(BaseModel):
     total: int
+    limit: int
+    offset: int
     categories: List[Category]
 
 
-CATEGORIES: List[Category] = [
-    Category(
-        id=1,
-        name="História",
-        description="Conhece a história e evolução da Unitel.",
-    ),
-    Category(
-        id=2,
-        name="Serviços",
-        description="Descobre os serviços e soluções da Unitel.",
-    ),
-    Category(
-        id=3,
-        name="Conhece a Unitel",
-        description="Testa os teus conhecimentos sobre a empresa.",
-    ),
-]
+class ErrorResponse(BaseModel):
+    error: str
+    detail: object
+    path: str
 
 
-def _find_category(category_id: int) -> Optional[Category]:
-    return next((cat for cat in CATEGORIES if cat.id == category_id), None)
+@app.middleware("http")
+async def add_process_time_and_logging(request: Request, call_next):
+    start_time = time.perf_counter()
+    response = await call_next(request)
+    elapsed_seconds = time.perf_counter() - start_time
+    response.headers["X-Process-Time"] = f"{elapsed_seconds:.4f}s"
+    logger.info(
+        "%s %s -> %s (%0.2f ms)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_seconds * 1000,
+    )
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    payload = ErrorResponse(
+        error="HTTP_ERROR",
+        detail=exc.detail,
+        path=request.url.path,
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=payload.model_dump(),
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    payload = ErrorResponse(
+        error="VALIDATION_ERROR",
+        detail=exc.errors(),
+        path=request.url.path,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=payload.model_dump(),
+    )
+
+
+class CategoryService:
+    def __init__(self, initial_categories: List[Category]) -> None:
+        self._items: List[Category] = list(initial_categories)
+
+    def _find_index(self, category_id: int) -> int:
+        for idx, item in enumerate(self._items):
+            if item.id == category_id:
+                return idx
+        return -1
+
+    def get_by_id(self, category_id: int) -> Optional[Category]:
+        idx = self._find_index(category_id)
+        return self._items[idx] if idx != -1 else None
+
+    def list_categories(
+        self,
+        q: Optional[str] = None,
+        limit: int = 10,
+        offset: int = 0,
+        sort_by: SortField = SortField.id,
+        order: SortOrder = SortOrder.asc,
+    ) -> CategoriesResponse:
+        items = list(self._items)
+
+        if q:
+            termo = q.strip().lower()
+            items = [
+                cat
+                for cat in items
+                if termo in cat.name.lower() or termo in cat.description.lower()
+            ]
+
+        reverse = order == SortOrder.desc
+        if sort_by == SortField.id:
+            items.sort(key=lambda cat: cat.id, reverse=reverse)
+        elif sort_by == SortField.name:
+            items.sort(key=lambda cat: cat.name.lower(), reverse=reverse)
+
+        total = len(items)
+        paginated = items[offset : offset + limit]
+
+        return CategoriesResponse(
+            total=total,
+            limit=limit,
+            offset=offset,
+            categories=paginated,
+        )
+
+    def create(self, payload: CategoryCreate) -> Category:
+        if self._find_index(payload.id) != -1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Já existe uma categoria com id {payload.id}.",
+            )
+
+        new_category = Category(**payload.model_dump())
+        self._items.append(new_category)
+        logger.info("Categoria criada: id=%s, name=%s", new_category.id, new_category.name)
+        return new_category
+
+    def update(self, category_id: int, payload: CategoryUpdate) -> Category:
+        idx = self._find_index(category_id)
+        if idx == -1:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Categoria com id {category_id} não encontrada.",
+            )
+
+        updated = Category(
+            id=category_id,
+            name=payload.name,
+            description=payload.description,
+        )
+        self._items[idx] = updated
+        logger.info("Categoria atualizada: id=%s", category_id)
+        return updated
+
+    def patch(self, category_id: int, payload: CategoryPatch) -> Category:
+        idx = self._find_index(category_id)
+        if idx == -1:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Categoria com id {category_id} não encontrada.",
+            )
+
+        current = self._items[idx]
+        updates = payload.model_dump(exclude_unset=True)
+        if not updates:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Informe pelo menos um campo para atualizar ('name' ou 'description').",
+            )
+
+        updated = Category(
+            id=current.id,
+            name=updates.get("name", current.name),
+            description=updates.get("description", current.description),
+        )
+        self._items[idx] = updated
+        logger.info("Categoria atualizada parcialmente: id=%s", category_id)
+        return updated
+
+    def delete(self, category_id: int) -> None:
+        idx = self._find_index(category_id)
+        if idx == -1:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Categoria com id {category_id} não encontrada.",
+            )
+
+        self._items.pop(idx)
+        logger.info("Categoria removida: id=%s", category_id)
+
+
+category_service = CategoryService(
+    [
+        Category(
+            id=1,
+            name="História",
+            description="Conhece a história e evolução da Unitel.",
+        ),
+        Category(
+            id=2,
+            name="Serviços",
+            description="Descobre os serviços e soluções da Unitel.",
+        ),
+        Category(
+            id=3,
+            name="Conhece a Unitel",
+            description="Testa os teus conhecimentos sobre a empresa.",
+        ),
+    ]
+)
 
 
 @app.get("/", response_model=HealthResponse, tags=["Geral"])
@@ -105,27 +289,39 @@ def get_categories(
     q: Optional[str] = Query(
         default=None,
         description="Filtra categorias pelo nome ou descrição",
-    )
+    ),
+    limit: int = Query(
+        default=10,
+        ge=1,
+        le=100,
+        description="Quantidade máxima de itens retornados",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Quantidade de itens a ignorar antes de retornar",
+    ),
+    sort_by: SortField = Query(
+        default=SortField.id,
+        description="Campo de ordenação: id ou name",
+    ),
+    order: SortOrder = Query(
+        default=SortOrder.asc,
+        description="Direção da ordenação: asc ou desc",
+    ),
 ) -> CategoriesResponse:
-    if q:
-        termo = q.strip().lower()
-        filtered = [
-            cat
-            for cat in CATEGORIES
-            if termo in cat.name.lower() or termo in cat.description.lower()
-        ]
-    else:
-        filtered = CATEGORIES
-
-    return CategoriesResponse(
-        total=len(filtered),
-        categories=filtered,
+    return category_service.list_categories(
+        q=q,
+        limit=limit,
+        offset=offset,
+        sort_by=sort_by,
+        order=order,
     )
 
 
 @app.get("/categories/{category_id}", response_model=Category, tags=["Categorias"])
 def get_category_by_id(category_id: int) -> Category:
-    category = _find_category(category_id)
+    category = category_service.get_by_id(category_id)
     if not category:
         logger.warning("Categoria não encontrada: id=%s", category_id)
         raise HTTPException(
@@ -142,28 +338,24 @@ def get_category_by_id(category_id: int) -> Category:
     tags=["Categorias"],
 )
 def create_category(payload: CategoryCreate) -> Category:
-    if _find_category(payload.id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Já existe uma categoria com id {payload.id}.",
-        )
-
-    new_category = Category(**payload.model_dump())
-    CATEGORIES.append(new_category)
-    logger.info("Categoria criada: id=%s, name=%s", new_category.id, new_category.name)
-    return new_category
+    return category_service.create(payload)
 
 
 @app.put("/categories/{category_id}", response_model=Category, tags=["Categorias"])
 def update_category(category_id: int, payload: CategoryUpdate) -> Category:
-    category = _find_category(category_id)
-    if not category:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Categoria com id {category_id} não encontrada.",
-        )
+    return category_service.update(category_id, payload)
 
-    category.name = payload.name
-    category.description = payload.description
-    logger.info("Categoria atualizada: id=%s", category_id)
-    return category
+
+@app.patch("/categories/{category_id}", response_model=Category, tags=["Categorias"])
+def patch_category(category_id: int, payload: CategoryPatch) -> Category:
+    return category_service.patch(category_id, payload)
+
+
+@app.delete(
+    "/categories/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Categorias"],
+)
+def delete_category(category_id: int) -> Response:
+    category_service.delete(category_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
