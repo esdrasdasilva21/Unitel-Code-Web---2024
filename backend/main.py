@@ -1,7 +1,9 @@
 import json
 import logging
 import os
+import tempfile
 import time
+import uuid
 from enum import Enum
 from pathlib import Path
 from typing import List, Optional
@@ -10,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("unitel_code_web_api")
@@ -31,7 +33,7 @@ class Settings(BaseModel):
     app_description: str = os.getenv(
         "APP_DESCRIPTION", "API do projeto Unitel Code Web"
     )
-    app_version: str = os.getenv("APP_VERSION", "1.5.0")
+    app_version: str = os.getenv("APP_VERSION", "1.6.0")
     data_file: Path = Path(os.getenv("DATA_FILE", "categories_store.json"))
     cors_origins: List[str] = [
         origin.strip()
@@ -57,9 +59,26 @@ app.add_middleware(
 )
 
 
+def _clean_non_empty_text(value: str, field_label: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        raise ValueError(f"O campo '{field_label}' não pode ficar vazio.")
+    return cleaned
+
+
 class CategoryBase(BaseModel):
     name: str = Field(..., min_length=2, max_length=80)
     description: str = Field(..., min_length=5, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        return _clean_non_empty_text(v, "name")
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, v: str) -> str:
+        return _clean_non_empty_text(v, "description")
 
 
 class CategoryCreate(CategoryBase):
@@ -73,6 +92,20 @@ class CategoryUpdate(CategoryBase):
 class CategoryPatch(BaseModel):
     name: Optional[str] = Field(default=None, min_length=2, max_length=80)
     description: Optional[str] = Field(default=None, min_length=5, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def validate_optional_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return _clean_non_empty_text(v, "name")
+
+    @field_validator("description")
+    @classmethod
+    def validate_optional_description(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return _clean_non_empty_text(v, "description")
 
 
 class Category(CategoryBase):
@@ -103,6 +136,7 @@ class ErrorResponse(BaseModel):
     error: str
     detail: object
     path: str
+    request_id: Optional[str] = None
 
 
 DEFAULT_CATEGORIES: List[Category] = [
@@ -125,13 +159,20 @@ DEFAULT_CATEGORIES: List[Category] = [
 
 
 @app.middleware("http")
-async def add_process_time_and_logging(request: Request, call_next):
+async def add_request_context_and_logging(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+
     start_time = time.perf_counter()
     response = await call_next(request)
     elapsed_seconds = time.perf_counter() - start_time
+
+    response.headers["X-Request-ID"] = request_id
     response.headers["X-Process-Time"] = f"{elapsed_seconds:.4f}s"
+
     logger.info(
-        "%s %s -> %s (%0.2f ms)",
+        "[%s] %s %s -> %s (%0.2f ms)",
+        request_id,
         request.method,
         request.url.path,
         response.status_code,
@@ -142,10 +183,12 @@ async def add_process_time_and_logging(request: Request, call_next):
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", None)
     payload = ErrorResponse(
         error="HTTP_ERROR",
         detail=exc.detail,
         path=request.url.path,
+        request_id=request_id,
     )
     return JSONResponse(
         status_code=exc.status_code,
@@ -158,10 +201,12 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", None)
     payload = ErrorResponse(
         error="VALIDATION_ERROR",
         detail=exc.errors(),
         path=request.url.path,
+        request_id=request_id,
     )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -201,10 +246,26 @@ class CategoryService:
     def _save_to_disk(self, items: Optional[List[Category]] = None) -> None:
         target = items if items is not None else self._items
         serialized = [item.model_dump() for item in target]
-        self._storage_path.write_text(
-            json.dumps(serialized, ensure_ascii=False, indent=2),
-            encoding="utf-8",
+        content = json.dumps(serialized, ensure_ascii=False, indent=2)
+
+        parent_dir = self._storage_path.parent or Path(".")
+        parent_dir.mkdir(parents=True, exist_ok=True)
+
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(parent_dir),
+            prefix=f".{self._storage_path.name}.",
+            suffix=".tmp",
         )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+                tmp_file.write(content)
+                tmp_file.flush()
+                os.fsync(tmp_file.fileno())
+            os.replace(tmp_name, self._storage_path)
+        except Exception:
+            if os.path.exists(tmp_name):
+                os.remove(tmp_name)
+            raise
 
     def _find_index(self, category_id: int) -> int:
         for idx, item in enumerate(self._items):
@@ -412,24 +473,11 @@ def get_category_by_id(category_id: int) -> Category:
     tags=["Categorias"],
 )
 def create_category(payload: CategoryCreate) -> Category:
-    return category_service.create(payload)
-
-
-@app.put("/categories/{category_id}", response_model=Category, tags=["Categorias"])
-def update_category(category_id: int, payload: CategoryUpdate) -> Category:
-    return category_service.update(category_id, payload)
-
-
+    return category_service.create(payload) 
 @app.patch("/categories/{category_id}", response_model=Category, tags=["Categorias"])
 def patch_category(category_id: int, payload: CategoryPatch) -> Category:
     return category_service.patch(category_id, payload)
 
-
-@app.delete(
-    "/categories/{category_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["Categorias"],
-)
 def delete_category(category_id: int) -> Response:
     category_service.delete(category_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
