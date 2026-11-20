@@ -1,3 +1,4 @@
+import hmac
 import json
 import logging
 import os
@@ -8,7 +9,7 @@ from enum import Enum
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -33,8 +34,9 @@ class Settings(BaseModel):
     app_description: str = os.getenv(
         "APP_DESCRIPTION", "API do projeto Unitel Code Web"
     )
-    app_version: str = os.getenv("APP_VERSION", "1.6.0")
+    app_version: str = os.getenv("APP_VERSION", "1.7.0")
     data_file: Path = Path(os.getenv("DATA_FILE", "categories_store.json"))
+    api_write_key: Optional[str] = os.getenv("API_WRITE_KEY") or None
     cors_origins: List[str] = [
         origin.strip()
         for origin in os.getenv("CORS_ORIGINS", "*").split(",")
@@ -123,6 +125,7 @@ class DetailedHealthResponse(BaseModel):
     version: str
     storage_file: str
     total_categories: int
+    write_auth_enabled: bool
 
 
 class CategoriesResponse(BaseModel):
@@ -400,6 +403,27 @@ category_service = CategoryService(
 )
 
 
+def get_category_service() -> CategoryService:
+    return category_service
+
+
+def require_write_api_key(
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+) -> None:
+    if not settings.api_write_key:
+        return
+    if not x_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Cabeçalho 'X-API-Key' obrigatório para operações de escrita.",
+        )
+    if not hmac.compare_digest(x_api_key, settings.api_write_key):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chave 'X-API-Key' inválida.",
+        )
+
+
 @app.get("/", response_model=HealthResponse, tags=["Geral"])
 def home() -> HealthResponse:
     return HealthResponse(
@@ -410,12 +434,15 @@ def home() -> HealthResponse:
 
 
 @app.get("/health", response_model=DetailedHealthResponse, tags=["Geral"])
-def health_check() -> DetailedHealthResponse:
+def health_check(
+    service: CategoryService = Depends(get_category_service),
+) -> DetailedHealthResponse:
     return DetailedHealthResponse(
         status="healthy",
         version=app.version,
         storage_file=str(settings.data_file),
-        total_categories=category_service.count(),
+        total_categories=service.count(),
+        write_auth_enabled=bool(settings.api_write_key),
     )
 
 
@@ -444,8 +471,9 @@ def get_categories(
         default=SortOrder.asc,
         description="Direção da ordenação: asc ou desc",
     ),
+    service: CategoryService = Depends(get_category_service),
 ) -> CategoriesResponse:
-    return category_service.list_categories(
+    return service.list_categories(
         q=q,
         limit=limit,
         offset=offset,
@@ -455,8 +483,11 @@ def get_categories(
 
 
 @app.get("/categories/{category_id}", response_model=Category, tags=["Categorias"])
-def get_category_by_id(category_id: int) -> Category:
-    category = category_service.get_by_id(category_id)
+def get_category_by_id(
+    category_id: int,
+    service: CategoryService = Depends(get_category_service),
+) -> Category:
+    category = service.get_by_id(category_id)
     if not category:
         logger.warning("Categoria não encontrada: id=%s", category_id)
         raise HTTPException(
@@ -470,14 +501,53 @@ def get_category_by_id(category_id: int) -> Category:
     "/categories",
     response_model=Category,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_write_api_key)],
     tags=["Categorias"],
 )
-def create_category(payload: CategoryCreate) -> Category:
-    return category_service.create(payload) 
-@app.patch("/categories/{category_id}", response_model=Category, tags=["Categorias"])
-def patch_category(category_id: int, payload: CategoryPatch) -> Category:
-    return category_service.patch(category_id, payload)
+def create_category(
+    payload: CategoryCreate,
+    service: CategoryService = Depends(get_category_service),
+) -> Category:
+    return service.create(payload)
 
-def delete_category(category_id: int) -> Response:
-    category_service.delete(category_id)
+
+@app.put(
+    "/categories/{category_id}",
+    response_model=Category,
+    dependencies=[Depends(require_write_api_key)],
+    tags=["Categorias"],
+)
+def update_category(
+    category_id: int,
+    payload: CategoryUpdate,
+    service: CategoryService = Depends(get_category_service),
+) -> Category:
+    return service.update(category_id, payload)
+
+
+@app.patch(
+    "/categories/{category_id}",
+    response_model=Category,
+    dependencies=[Depends(require_write_api_key)],
+    tags=["Categorias"],
+)
+def patch_category(
+    category_id: int,
+    payload: CategoryPatch,
+    service: CategoryService = Depends(get_category_service),
+) -> Category:
+    return service.patch(category_id, payload)
+
+
+@app.delete(
+    "/categories/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_write_api_key)],
+    tags=["Categorias"],
+)
+def delete_category(
+    category_id: int,
+    service: CategoryService = Depends(get_category_service),
+) -> Response:
+    service.delete(category_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
