@@ -2,7 +2,7 @@
 
 Aplicação web e API desenvolvida no âmbito do **Curso Unitel Code**, combinando interface web, materiais de aula e serviço de backend para gestão e consulta de conteúdos e categorias.
 
-## Estrutura do Projeto
+# Estrutura do Projeto
 
 * `src/` — Código-fonte principal da aplicação (`app.js`, `index.html`, ativos e componentes).
 * `backend/` — API backend (FastAPI / Python) com rotas e lógica de categorias.
@@ -12,7 +12,7 @@ Aplicação web e API desenvolvida no âmbito do **Curso Unitel Code**, combinan
 * `bootstrap-5.2.3-dist/` — Recursos do Bootstrap incluídos no repositório.
 * `package.json` — Dependências e scripts do projeto.
 
-## Funcionalidades e Endpoints da API
+# Funcionalidades e Endpoints da API
 
 * `GET /` — Verificação de estado (*health check*) e informações básicas da API.
 * `GET /health` — Verificação detalhada do estado da API e do armazenamento.
@@ -22,21 +22,21 @@ Aplicação web e API desenvolvida no âmbito do **Curso Unitel Code**, combinan
 
 ## Como Executar Localmente
 
-### 1. Clonar o repositório
+## 1. Clonar o repositório
 
 ```bash
 git clone https://github.com/esdrasdasilva21/Unitel-Code-Web---2024.git
 cd Unitel-Code-Web---2024
 ```
 
-### 2. Executar o Frontend / Dependências Node
+## 2. Executar o Frontend / Dependências Node
 
 ```bash
 npm install
 npm run dev
 ```
 
-### 3. Executar o Backend (API)
+## 3. Executar o Backend (API)
 
 Acede à pasta `backend/`, instala as dependências Python (`fastapi`, `uvicorn`, `pydantic`) e inicia o servidor:
 
