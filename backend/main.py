@@ -217,10 +217,14 @@ async def validation_exception_handler(
     )
 
 
-updates = payload.model_dump(
-    exclude_unset=True,
-    exclude_none=True,
-)
+class CategoryService:
+    def __init__(
+        self,
+        storage_path: Path,
+        initial_categories: List[Category],
+    ) -> None:
+        self.storage_path = storage_path
+        self.items: List[Category] = self._load_or_seed(initial_categories)
 
     def _load_or_seed(self, initial_categories: List[Category]) -> List[Category]:
         if not self._storage_path.exists():
@@ -358,13 +362,10 @@ updates = payload.model_dump(
         logger.info("Categoria atualizada: id=%s", category_id)
         return updated
 
-    def patch(self, category_id: int, payload: CategoryPatch) -> Category:
-        idx = self._find_index(category_id)
-        if idx == -1:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Categoria com id {category_id} não encontrada.",
-            )
+   def patch ( updates = payload.model_dump (
+    exclude_unset=True,
+    exclude_none=True,
+) ;
 
         current = self._items[idx]
         updates = payload.model_dump(exclude_unset=True)
