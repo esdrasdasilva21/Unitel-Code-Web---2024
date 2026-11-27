@@ -217,10 +217,10 @@ async def validation_exception_handler(
     )
 
 
-class CategoryService:
-    def __init__(self, storage_path: Path, initial_categories: List[Category]) -> None:
-        self._storage_path = storage_path
-        self._items: List[Category] = self._load_or_seed(initial_categories)
+updates = payload.model_dump(
+    exclude_unset=True,
+    exclude_none=True,
+)
 
     def _load_or_seed(self, initial_categories: List[Category]) -> List[Category]:
         if not self._storage_path.exists():
